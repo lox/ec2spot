@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -134,49 +135,30 @@ func readSpotPrices(client *ec2.EC2, spec spotPriceSpec) (spotPriceRange, error)
 	return spotPriceRange(prices), err
 }
 
-func main() {
-	debugFlag := flag.Bool("debug", false, "Show debugging output")
-	daysFlag := flag.Int("days", 7, "How many days to go back")
-	instanceFlag := flag.String("instance", "c4.large", "Show results for a particular instance type")
-	productFlag := flag.String("product", "Linux/UNIX (Amazon VPC)", "Show results for a particular product type")
-	regionFlag := flag.String("region", "us-east-1", "Show results for a particular region")
-	concurrencyFlag := flag.Int("concurrency", 12, "How many concurrent AWS requests to make")
-	flag.Parse()
+type analysisParams struct {
+	Range        timerange.Range
+	InstanceType string
+	Region       string
+	Product      string
+	Days         int
+	Concurrency  int
+}
 
-	config := aws.NewConfig()
-	if *debugFlag {
-		config = config.WithLogLevel(
-			aws.LogDebugWithRequestRetries | aws.LogDebugWithRequestErrors,
-		)
-	}
-
-	sess, err := session.NewSession(config.WithRegion(*regionFlag))
-	if err != nil {
-		log.Fatalf("Failed to create AWS session: %v", err)
-		return
-	}
-
-	dayRange := timerange.Range{
-		timerange.StartOfDay(time.Now()).AddDate(0, 0, *daysFlag*-1),
-		time.Now(),
-	}
-
-	svc := ec2.New(sess)
-
+func runAnalysis(svc *ec2.EC2, params analysisParams) error {
 	g, ctx := errgroup.WithContext(context.Background())
 	specs := make(chan spotPriceSpec, 100)
 
 	// generate the specs for the different time range chunks
 	g.Go(func() error {
 		defer close(specs)
-		for _, day := range dayRange.Days() {
-			for _, r := range day.Split(time.Hour * 4) {
+		for _, day := range params.Range.Days() {
+			for _, r := range day.Split(time.Hour * 5) {
 				spec := spotPriceSpec{
-					Region:             *regionFlag,
+					Region:             params.Region,
 					Start:              r[0],
 					End:                r[1],
-					ProductDescription: *productFlag,
-					InstanceType:       *instanceFlag,
+					ProductDescription: params.Product,
+					InstanceType:       params.InstanceType,
 				}
 				select {
 				case specs <- spec:
@@ -190,18 +172,15 @@ func main() {
 
 	// start a fixed number of goroutines to send aws requests
 	prices := make(chan spotPrice)
-	for i := 0; i < *concurrencyFlag; i++ {
+	for i := 0; i < params.Concurrency; i++ {
 		g.Go(func() error {
 			for spec := range specs {
-				if *debugFlag {
-					log.Printf("Processing %v", spec)
-				}
 				result, err := readSpotPrices(svc, spec)
 				if err != nil {
 					return err
 				}
-				if *debugFlag {
-					log.Printf("Got back %d prices", len(result))
+				if len(result) >= 1000 {
+					log.Printf("Warning: results are clipped at 1000")
 				}
 				for _, price := range result {
 					select {
@@ -224,36 +203,36 @@ func main() {
 		results = append(results, price)
 	}
 
-	if err = g.Wait(); err != nil {
-		log.Fatal(err)
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
 	data, err := ec2instancesinfo.Data()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	var onDemandPrice float64
 
 	for _, i := range *data {
-		if i.InstanceType == *instanceFlag {
+		if i.InstanceType == params.InstanceType {
 			fmt.Printf("Instance Type:    %s\n", i.PrettyName)
 			fmt.Printf("VCPU:             %d\n", i.VCPU)
 			fmt.Printf("Memory:           %.2f\n", i.Memory)
-			fmt.Printf("On-Demand Price:  %.6f\n\n", i.Pricing[*regionFlag].Linux.OnDemand)
+			fmt.Printf("On-Demand Price:  %.6f\n\n", i.Pricing[params.Region].Linux.OnDemand)
 
-			onDemandPrice = i.Pricing[*regionFlag].Linux.OnDemand
+			onDemandPrice = i.Pricing[params.Region].Linux.OnDemand
 		}
 	}
 
 	if err = showHistograph(results); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	var totalSpotCost, totalOnDemandCost float64
 	var hours int64
 
-	for _, hour := range dayRange.Split(time.Hour) {
+	for _, hour := range params.Range.Split(time.Hour) {
 		hourPrices := results.Subset(hour)
 		hours++
 
@@ -273,4 +252,44 @@ func main() {
 		totalOnDemandCost,
 		((totalOnDemandCost-totalSpotCost)/totalOnDemandCost)*100,
 	)
+
+	return nil
+}
+
+func main() {
+	daysFlag := flag.Int("days", 7, "How many days to go back")
+	instanceFlag := flag.String("instance", "c4.large", "Show results for a particular instance type, or multiple comma delimited")
+	productFlag := flag.String("product", "Linux/UNIX (Amazon VPC)", "Show results for a particular product type")
+	regionFlag := flag.String("region", "us-east-1", "Show results for a particular region")
+	concurrencyFlag := flag.Int("concurrency", 12, "How many concurrent AWS requests to make")
+	flag.Parse()
+
+	config := aws.NewConfig()
+	sess, err := session.NewSession(config.WithRegion(*regionFlag))
+	if err != nil {
+		log.Fatalf("Failed to create AWS session: %v", err)
+		return
+	}
+
+	dayRange := timerange.Range{
+		timerange.StartOfDay(time.Now()).AddDate(0, 0, *daysFlag*-1),
+		time.Now(),
+	}
+
+	svc := ec2.New(sess)
+
+	for _, instanceType := range strings.Split(*instanceFlag, ",") {
+		params := analysisParams{
+			InstanceType: instanceType,
+			Region:       *regionFlag,
+			Concurrency:  *concurrencyFlag,
+			Product:      *productFlag,
+			Days:         *daysFlag,
+			Range:        dayRange,
+		}
+
+		if err := runAnalysis(svc, params); err != nil {
+			log.Fatal(err)
+		}
+	}
 }
