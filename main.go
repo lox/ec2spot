@@ -261,7 +261,7 @@ func main() {
 	instanceFlag := flag.String("instance", "c4.large", "Show results for a particular instance type, or multiple comma delimited")
 	productFlag := flag.String("product", "Linux/UNIX (Amazon VPC)", "Show results for a particular product type")
 	regionFlag := flag.String("region", "us-east-1", "Show results for a particular region")
-	concurrencyFlag := flag.Int("concurrency", 12, "How many concurrent AWS requests to make")
+	concurrencyFlag := flag.Int("concurrency", 10, "How many concurrent AWS requests to make")
 	flag.Parse()
 
 	config := aws.NewConfig()
