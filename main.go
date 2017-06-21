@@ -152,7 +152,7 @@ func runAnalysis(svc *ec2.EC2, params analysisParams) error {
 	g.Go(func() error {
 		defer close(specs)
 		for _, day := range params.Range.Days() {
-			for _, r := range day.Split(time.Hour * 5) {
+			for _, r := range day.Split(time.Hour * 8) {
 				spec := spotPriceSpec{
 					Region:             params.Region,
 					Start:              r[0],
@@ -179,9 +179,10 @@ func runAnalysis(svc *ec2.EC2, params analysisParams) error {
 				if err != nil {
 					return err
 				}
-				if len(result) >= 1000 {
-					log.Printf("Warning: results are clipped at 1000")
-				}
+				// FIXME: What does this actually mean?
+				// if len(result) >= 1000 {
+				// 	log.Printf("Warning: results are clipped at 1000")
+				// }
 				for _, price := range result {
 					select {
 					case prices <- price:
