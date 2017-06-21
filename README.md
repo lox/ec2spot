@@ -3,8 +3,8 @@ ec2spot
 
 A cli tool for sampling recent EC2 spot pricing data and showing a histogram of the results. An analysis of relative cost for that period is also performed based on the actual per-hour pricing.
 
-```
-ec2spot -days 30 -instance m4.large -region us-east-1
+```bash
+$ ec2spot -days 30 -instance m4.large -region us-east-1
 Instance Type:    M4 Large
 VCPU:             2
 Memory:           8.00
