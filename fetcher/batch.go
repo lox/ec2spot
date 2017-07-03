@@ -11,7 +11,7 @@ import (
 	"github.com/lox/ec2spot/timerange"
 )
 
-const chunkSize = time.Hour * 24
+const chunkSize = time.Hour * 8
 
 type BatchFetchSpec struct {
 	InstanceTypes     []string

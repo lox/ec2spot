@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"regexp"
@@ -22,30 +23,51 @@ func main() {
 	azsFlag := flag.String("azs", "", "Only include specific availability zones (e.g a,b,c)")
 	concurrencyFlag := flag.Int("concurrency", 10, "How many concurrent AWS requests to make")
 	bidFlag := flag.Float64("bid", 0, "Maximum bid to make in estimates")
-	splitAzsFlag := flag.Bool("split-azs", false, "Whether to show availability zones individually")
 	flag.Parse()
 
 	regions := strings.Split(*regionFlag, ",")
 	azs := parseAvailabilityZones(regions, *azsFlag)
+	instanceTypes := strings.Split(*instanceFlag, ",")
 
 	prices, err := runAnalysis(context.Background(), analysisParams{
-		InstanceTypes:     strings.Split(*instanceFlag, ","),
+		InstanceTypes:     instanceTypes,
 		Regions:           regions,
 		AvailabilityZones: azs,
 		Concurrency:       *concurrencyFlag,
 		Product:           *productFlag,
 		Days:              *daysFlag,
 		MaxBid:            *bidFlag,
-		SplitZones:        *splitAzsFlag,
 	})
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	showHistograph(prices)
+	for _, region := range regions {
+		for _, instanceType := range instanceTypes {
+			foundAZs := prices.AvailabilityZones()
 
-	// log.Printf("%#v", prices)
+			fmt.Printf("%s\n", strings.Repeat("=", 80))
+			fmt.Printf("%-20s%s\n", "Region:", region)
+			fmt.Printf("%-20s%s\n", "Instance Type:", instanceType)
+
+			info, err := data.GetInstanceTypeInfo(region, instanceType)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Printf("%-20s$%.6f\n", "On-Demand Price:", info.Price)
+
+			fmt.Printf("\nAll Availability Zones %s\n", strings.Join(foundAZs, ","))
+			showHistograph(prices)
+
+			for _, az := range foundAZs {
+				sliced := prices.ByAvailabilityZone(az)
+				fmt.Printf("\nAvailability Zone %s\n", az)
+				showHistograph(sliced)
+			}
+		}
+	}
 }
 
 type analysisParams struct {
@@ -58,6 +80,13 @@ type analysisParams struct {
 	Concurrency       int
 	MaxBid            float64
 	SplitZones        bool
+}
+
+type analysisResults struct {
+	Region        string
+	InstanceType  string
+	OnDemandPrice float64
+	Prices        data.SpotPriceSlice
 }
 
 // func estimatePrice() {
@@ -137,7 +166,7 @@ type analysisParams struct {
 // return nil
 
 func runAnalysis(ctx context.Context, params analysisParams) (data.SpotPriceSlice, error) {
-	prices, g := fetcher.BatchFetch(ctx, params.Concurrency, fetcher.BatchFetchSpec{
+	results, g := fetcher.BatchFetch(ctx, params.Concurrency, fetcher.BatchFetchSpec{
 		InstanceTypes:     params.InstanceTypes,
 		Regions:           params.Regions,
 		AvailabilityZones: params.AvailabilityZones,
@@ -145,16 +174,16 @@ func runAnalysis(ctx context.Context, params analysisParams) (data.SpotPriceSlic
 		Days:              params.Days,
 	})
 
-	results := data.SpotPriceSlice{}
-	for price := range prices {
-		results = append(results, price)
+	prices := data.SpotPriceSlice{}
+	for price := range results {
+		prices = append(prices, price)
 	}
 
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
-	return results, nil
+	return prices, nil
 }
 
 var reAz = regexp.MustCompile(`([a-z]+\-[a-z]+-[0-9])([a-z])?$`)
