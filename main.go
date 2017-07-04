@@ -192,7 +192,6 @@ func parseAvailabilityZones(regions []string, azsFlag string) []string {
 	azs := []string{}
 
 	for _, s := range strings.Split(azsFlag, ",") {
-		log.Printf("AZ: %#v Regions: %#v", s, regions)
 		if s != "" {
 			azs = append(azs, regions[0]+s)
 		}
@@ -201,8 +200,12 @@ func parseAvailabilityZones(regions []string, azsFlag string) []string {
 	return azs
 }
 
+func formatPrice(v float64) string {
+	return fmt.Sprintf("%.6g", v)
+}
+
 func showHistograph(prices data.SpotPriceSlice) error {
-	bins := 4
+	bins := 3
 	data := []float64{}
 
 	for _, p := range prices {
@@ -211,5 +214,5 @@ func showHistograph(prices data.SpotPriceSlice) error {
 
 	hist := histogram.Hist(bins, data)
 	maxWidth := 40
-	return histogram.Fprint(os.Stdout, hist, histogram.Linear(maxWidth))
+	return histogram.Fprintf(os.Stdout, hist, histogram.Linear(maxWidth), formatPrice)
 }

@@ -2,7 +2,6 @@ package fetcher
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -33,8 +32,6 @@ func (params BatchFetchSpec) ToFetchSpecs(chunkSize time.Duration) []FetchSpec {
 		}
 	}
 
-	log.Printf("Range: %s", timerange.DaysAgo(time.Now(), params.Days))
-
 	for _, region := range params.Regions {
 		for _, instanceType := range params.InstanceTypes {
 			forEachAz(params.AvailabilityZones, func(az string) {
@@ -52,7 +49,6 @@ func (params BatchFetchSpec) ToFetchSpecs(chunkSize time.Duration) []FetchSpec {
 		}
 	}
 
-	log.Printf("Split into %d specs", len(specs))
 	return specs
 }
 

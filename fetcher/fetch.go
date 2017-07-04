@@ -1,7 +1,6 @@
 package fetcher
 
 import (
-	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/lox/ec2spot/data"
-	"github.com/lox/ec2spot/timerange"
 )
 
 var (
@@ -50,8 +48,6 @@ func Fetch(spec FetchSpec) (data.SpotPriceSlice, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	log.Printf("Fetching %s", timerange.Range{spec.Start, spec.End})
 
 	prices := data.SpotPriceSlice{}
 	params := &ec2.DescribeSpotPriceHistoryInput{
