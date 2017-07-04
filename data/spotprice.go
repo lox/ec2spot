@@ -51,6 +51,19 @@ func (r SpotPriceSlice) Average() float64 {
 	return total / float64(len(r))
 }
 
+func (r SpotPriceSlice) Buckets(times []timerange.Range) []SpotPriceBucket {
+	var buckets = make([]SpotPriceBucket, len(times))
+
+	for idx, tr := range times {
+		buckets[idx] = SpotPriceBucket{
+			Range:  tr,
+			Prices: r.Subset(tr),
+		}
+	}
+
+	return buckets
+}
+
 func (r SpotPriceSlice) Subset(tr timerange.Range) SpotPriceSlice {
 	subset := SpotPriceSlice{}
 
@@ -68,6 +81,30 @@ func (r SpotPriceSlice) ByAvailabilityZone(az string) SpotPriceSlice {
 
 	for _, sp := range r {
 		if sp.AvailabilityZone == az {
+			subset = append(subset, sp)
+		}
+	}
+
+	return subset
+}
+
+func (r SpotPriceSlice) ByRegion(region string) SpotPriceSlice {
+	subset := SpotPriceSlice{}
+
+	for _, sp := range r {
+		if sp.Region == region {
+			subset = append(subset, sp)
+		}
+	}
+
+	return subset
+}
+
+func (r SpotPriceSlice) ByInstanceType(instanceType string) SpotPriceSlice {
+	subset := SpotPriceSlice{}
+
+	for _, sp := range r {
+		if sp.InstanceType == instanceType {
 			subset = append(subset, sp)
 		}
 	}
@@ -93,4 +130,17 @@ func (r SpotPriceSlice) String() string {
 	return fmt.Sprintf("Price range (%d points): Min %.5f Max %.5f Avg %.5f",
 		len(r), r.Min(), r.Max(), r.Average(),
 	)
+}
+
+type SpotPriceBucket struct {
+	Range  timerange.Range
+	Prices SpotPriceSlice
+}
+
+func (b SpotPriceBucket) String() string {
+	return fmt.Sprintf("%s - %.4g (%d prices)", b.Range.String(), b.Prices.Max(), len(b.Prices))
+}
+
+func (b SpotPriceBucket) Calculate(maxBid float64) float64 {
+	return b.Prices.Max()
 }

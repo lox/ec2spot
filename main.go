@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/aybabtme/uniplot/histogram"
 	"github.com/lox/ec2spot/data"
@@ -22,7 +23,7 @@ func main() {
 	regionFlag := flag.String("region", "us-east-1", "Show results for a particular region")
 	azsFlag := flag.String("azs", "", "Only include specific availability zones (e.g a,b,c)")
 	concurrencyFlag := flag.Int("concurrency", 10, "How many concurrent AWS requests to make")
-	bidFlag := flag.Float64("bid", 0, "Maximum bid to make in estimates")
+	maxBidFlag := flag.Float64("max-bid", 0, "Maximum bid to make in estimates")
 	flag.Parse()
 
 	regions := strings.Split(*regionFlag, ",")
@@ -36,7 +37,6 @@ func main() {
 		Concurrency:       *concurrencyFlag,
 		Product:           *productFlag,
 		Days:              *daysFlag,
-		MaxBid:            *bidFlag,
 	})
 
 	if err != nil {
@@ -46,8 +46,10 @@ func main() {
 	for _, region := range regions {
 		for _, instanceType := range instanceTypes {
 			foundAZs := prices.AvailabilityZones()
+			sliced := prices.
+				ByRegion(region).
+				ByInstanceType(instanceType)
 
-			fmt.Printf("%s\n", strings.Repeat("=", 80))
 			fmt.Printf("%-20s%s\n", "Region:", region)
 			fmt.Printf("%-20s%s\n", "Instance Type:", instanceType)
 
@@ -59,13 +61,19 @@ func main() {
 			fmt.Printf("%-20s$%.6f\n", "On-Demand Price:", info.Price)
 
 			fmt.Printf("\nAll Availability Zones %s\n", strings.Join(foundAZs, ","))
-			showHistograph(prices)
+			showHistograph(sliced)
 
 			for _, az := range foundAZs {
-				sliced := prices.ByAvailabilityZone(az)
 				fmt.Printf("\nAvailability Zone %s\n", az)
-				showHistograph(sliced)
+				showHistograph(sliced.ByAvailabilityZone(az))
 			}
+
+			estimateCost(costEstimateParams{
+				Days:         *daysFlag,
+				InstanceInfo: info,
+				Prices:       sliced,
+				MaxBid:       *maxBidFlag,
+			})
 		}
 	}
 }
@@ -78,92 +86,54 @@ type analysisParams struct {
 	Product           string
 	Days              int
 	Concurrency       int
-	MaxBid            float64
-	SplitZones        bool
 }
 
-type analysisResults struct {
-	Region        string
-	InstanceType  string
-	OnDemandPrice float64
-	Prices        data.SpotPriceSlice
+type costEstimateParams struct {
+	Days         int
+	InstanceInfo data.InstanceTypeInfo
+	Prices       data.SpotPriceSlice
+	MaxBid       float64
 }
 
-// func estimatePrice() {
-// 	var maxBid, totalSpotCost, totalOnDemandCost float64
-// 	var hours, outbid, partialOutbid int64
+func estimateCost(params costEstimateParams) {
+	var totalSpotCost, totalOnDemandCost float64
+	var timesOutbid int
 
-// 	for _, hour := range params.Range.Split(time.Hour) {
-// 		var outbidCount int
-// 		for _, az := range azs {
-// 			hourPrices := results.ByAvailabilityZone(az).Subset(hour)
-// 			hourMaxBid := hourPrices.Max()
-// 			bid := hourMaxBid
+	tr := timerange.DaysAgo(time.Now(), params.Days)
+	hours := tr.Split(time.Hour)
+	maxBid := params.Prices.Max()
 
-// 			// if params.MaxBid > 0 && hourMaxBid > params.MaxBid {
-// 			// 	bid = params.bid
-// 			// }
+	totalOnDemandCost = params.InstanceInfo.Price * float64(len(hours))
 
-// 			if len(hourPrices) > 0 {
-// 				totalSpotCost += hourPrices.Max()
-// 			} else {
-// 				totalSpotCost += onDemandPrice
-// 			}
+	if params.MaxBid > 0 && maxBid > params.MaxBid {
+		maxBid = params.MaxBid
+	}
 
-// 			totalOnDemandCost += onDemandPrice
-// 		}
-// 	}
+	for _, bucket := range params.Prices.Buckets(hours) {
+		outBid := true
 
-// 	fmt.Printf("\nSpot price for %d hours would be $%.2f (~$%.5f hourly) vs $%.2f on-demand (%.2f%% difference)\n\n",
-// 		hours,
-// 		totalSpotCost,
-// 		totalSpotCost/float64(hours),
-// 		totalOnDemandCost,
-// 		((totalOnDemandCost-totalSpotCost)/totalOnDemandCost)*100,
-// 	)
-// }
+		for _, az := range bucket.Prices.AvailabilityZones() {
+			if maxBid >= bucket.Prices.ByAvailabilityZone(az).Max() {
+				outBid = false
+				break
+			}
+		}
 
-// fmt.Printf("Region:             %s\n", params.Region)
+		if !outBid {
+			totalSpotCost += bucket.Prices.Max()
+		} else {
+			timesOutbid++
+		}
+	}
 
-// if len(params.AvailabilityZones) > 0 {
-// 	fmt.Printf("Availability Zones: %s\n", strings.Join(params.AvailabilityZones, ", "))
-// }
-
-// data, err := ec2instancesinfo.Data()
-// if err != nil {
-// 	return err
-// }
-
-// var onDemandPrice float64
-
-// for _, i := range *data {
-// 	if i.InstanceType == params.InstanceType {
-// 		fmt.Printf("Instance Type:      %s\n", i.PrettyName)
-// 		fmt.Printf("VCPU:               %d\n", i.VCPU)
-// 		fmt.Printf("Memory:             %.2f\n", i.Memory)
-// 		fmt.Printf("On-Demand Price:    %.6f\n\n", i.Pricing[params.Region].Linux.OnDemand)
-
-// 		// onDemandPrice = i.Pricing[params.Region].Linux.OnDemand
-// 	}
-// }
-
-// azs := results.AvailabilityZones()
-// fmt.Printf("All Availability Zones\n")
-
-// if err = showHistograph(results); err != nil {
-// 	return err
-// }
-
-// if params.SplitZones {
-// 	for _, az := range azs {
-// 		fmt.Printf("\nAvailability Zone %s\n", az)
-
-// 		if err = showHistograph(results.ByAvailabilityZone(az)); err != nil {
-// 			return err
-// 		}
-// 	}
-// }
-// return nil
+	fmt.Println("")
+	fmt.Printf("Time range is %d days, or %d hours\n", params.Days, len(hours))
+	fmt.Printf("At on-demand price of $%.4g (across all azs): $%.4g\n",
+		params.InstanceInfo.Price, totalOnDemandCost)
+	fmt.Printf("At maximum spot bid of $%.4g (across all azs): $%.4g (%%%.2f of on-demand)\n",
+		maxBid, totalSpotCost, ((totalOnDemandCost-totalSpotCost)/totalOnDemandCost)*100)
+	fmt.Printf("Time outbid: %d\n", timesOutbid)
+}
 
 func runAnalysis(ctx context.Context, params analysisParams) (data.SpotPriceSlice, error) {
 	results, g := fetcher.BatchFetch(ctx, params.Concurrency, fetcher.BatchFetchSpec{

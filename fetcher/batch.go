@@ -2,6 +2,7 @@ package fetcher
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -48,6 +49,8 @@ func (params BatchFetchSpec) ToFetchSpecs(chunkSize time.Duration) []FetchSpec {
 			})
 		}
 	}
+
+	log.Printf("Split into %d specs for parallel fetching", len(specs))
 
 	return specs
 }

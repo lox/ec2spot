@@ -66,6 +66,7 @@ func Fetch(spec FetchSpec) (data.SpotPriceSlice, error) {
 			for _, price := range page.SpotPriceHistory {
 				priceVal, _ := strconv.ParseFloat(*price.SpotPrice, 64)
 				prices = append(prices, data.SpotPrice{
+					Region:           spec.Region,
 					InstanceType:     *price.InstanceType,
 					AvailabilityZone: *price.AvailabilityZone,
 					Price:            float64(priceVal),
