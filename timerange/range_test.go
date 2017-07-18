@@ -1,7 +1,6 @@
 package timerange_test
 
 import (
-	"log"
 	"testing"
 	"time"
 
@@ -48,8 +47,6 @@ func TestTimeRangeSplit(t *testing.T) {
 
 	r := timerange.Range{t1, t2}
 	split := r.Split(time.Hour)
-
-	log.Printf("%s", split)
 
 	if l := len(split); l != 10 {
 		t.Fatalf("Expected 10 hours, got %d", l)
